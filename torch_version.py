@@ -5,7 +5,8 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset
 from scipy.stats import norm
-
+# from torchinfo import summary 
+from torchsummary import summary 
 
 def BS(S0, strike, T, sigma):
     return S0*norm.cdf((np.log(S0/strike)+0.5*T*sigma**2)/(np.sqrt(T)*sigma))-strike*norm.cdf((np.log(S0/strike)-0.5*T*sigma**2)/(np.sqrt(T)*sigma))
@@ -16,8 +17,8 @@ class DenseLayer(nn.Module):
     def __init__(self, num_assets, nodes):
         super(DenseLayer, self).__init__()
 
-        self.linear1 = torch.nn.Linear(in_features=num_assets, out_features=nodes)
-        self.linear2 = torch.nn.Linear(in_features=nodes, out_features=num_assets)
+        self.linear1 = torch.nn.Linear(in_features=num_assets, out_features=nodes, bias=True)
+        self.linear2 = torch.nn.Linear(in_features=nodes, out_features=num_assets, bias=True)
         self.activation = torch.nn.Tanh()
 
     def forward(self, x):
@@ -29,7 +30,7 @@ class DenseLayer(nn.Module):
 
 
 class HedgeNetwork(nn.Module):
-    def __init__(self, time_steps=10, num_assets=2, nodes=32):
+    def __init__(self, time_steps=10, num_assets=1, nodes=32):
         super(HedgeNetwork, self).__init__()
         self.dense_layers = \
             nn.ModuleList([DenseLayer(num_assets=num_assets, nodes=nodes) for _ in range(time_steps)])
@@ -82,7 +83,7 @@ class FullNetwork(nn.Module):
 
 def train(dataloader, model, loss_fn, optimizer, device):
     size = len(dataloader.dataset)
-    model.train()
+    running_loss = 0.0
     for batch, (X, y) in enumerate(dataloader):
         X, y = X.to(device), y.to(device)
         optimizer.zero_grad()
@@ -90,13 +91,13 @@ def train(dataloader, model, loss_fn, optimizer, device):
         y = torch.zeros_like(pred)
         loss = loss_fn(pred, y)
         loss.backward()
-        optimizer.step()
-
-        if batch % 100 == 0:
-            loss, current = loss.item(), batch * len(X)
+        optimizer.step()    
+        running_loss += loss.item()
+         
+        if batch % 1000 == 0:
+            print(f'loss: {running_loss / 1000:.10f}')
             # print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
-            print(batch)
-            print(loss)
+            running_loss = 0.0
 
 
 def generate_gbm(So, mu, sigma, Cov, T, N):
@@ -135,17 +136,17 @@ class GBMDataSet(Dataset):
         return self.data[idx], torch.zeros(1)
 
 
-
+# test data loader 
 n_assets = 1 
-batch_size = 256 
+batch_size = 32 
 ds = GBMDataSet(n_samples=int(1e5), n_assets=n_assets)
 data_loader = DataLoader(ds, batch_size=batch_size)
 x, y = next(iter(data_loader))
 
-# for n in range(data_loader.batch_size):
-#     plt.plot(x[n, :, 0])
+for n in range(data_loader.batch_size):
+    plt.plot(x[n, :, 0])
 
-priceBS=BS(1.0, 1.0, 1.0, 0.2)
+priceBS=BS(S0=1.0, strike=1.0, T=1.0, sigma=0.2)
 
 FN = FullNetwork(num_assets=n_assets, bs_price=priceBS)
 x = FN(x)
@@ -158,13 +159,14 @@ x = x.detach().numpy()
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using {device} device")
 
-DL = HedgeNetwork()
+model = FullNetwork(num_assets=1, bs_price=priceBS)
+model.train(True)
 loss_fn = nn.MSELoss()
-optimizer = torch.optim.SGD(DL.parameters(), lr=1e-3)
+optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+summary(model, input_size=(11,1), batch_size=32)
 
 for epoch in range(10):
-    FN.train(True)
-    train(dataloader=data_loader, model=FN, loss_fn=loss_fn, optimizer=optimizer, device=device)
+    train(dataloader=data_loader, model=model, loss_fn=loss_fn, optimizer=optimizer, device=device)
 
 
 # plt.show()
