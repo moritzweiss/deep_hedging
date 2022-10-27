@@ -8,6 +8,7 @@ from scipy.stats import norm
 # from torchinfo import summary 
 from torchsummary import summary 
 from scipy.stats import norm
+from torch.nn.functional import log_softmax
 
 # parameters 
 N=10 # time disrectization
@@ -28,19 +29,20 @@ print('Price of a Call option in the Black scholes model with initial price', S0
 # dense layer 
 class DenseLayer(nn.Module):
 
-    def __init__(self, num_assets=1, nodes=32):
+    def __init__(self, num_assets=1, nodes=32, n_actions=4):
         super(DenseLayer, self).__init__()
 
-        self.linear1 = torch.nn.Linear(in_features=num_assets, out_features=nodes, bias=True)
-        self.linear2 = torch.nn.Linear(in_features=nodes, out_features=num_assets, bias=True)
-        self.activation = torch.nn.Tanh()
+        # input is 2dimensional: time and inventory 
+        self.linear1 = torch.nn.Linear(in_features=num_assets+1, out_features=nodes, bias=True)
+        # 4 discrete output actions 
+        self.linear2 = torch.nn.Linear(in_features=nodes, out_features=n_actions, bias=True)
+        self.activation = log_softmax()
 
     def forward(self, x):
         x = self.linear1(x)
         x = self.activation(x)
-        x = self.linear2(x)
-
-        return x
+        x = self.linear2(x)        
+        return x 
 
 
 class HedgeNetwork(nn.Module):
